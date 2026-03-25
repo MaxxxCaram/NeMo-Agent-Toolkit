@@ -1,0 +1,67 @@
+#!/bin/bash
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+
+# Injected by Terraform (rendered at apply time).
+SANDBOX_NAME="${nemoclaw_sandbox_name}"
+
+apt-get update -y
+apt-get install -y ca-certificates curl gnupg lsb-release apt-transport-https software-properties-common
+
+# Ubuntu 24.04+ default repos do not ship docker-compose-plugin; use Docker's official apt repo.
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+chmod a+r /etc/apt/keyrings/docker.asc
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$${VERSION_CODENAME:-$$VERSION}") stable" >/etc/apt/sources.list.d/docker.list
+apt-get update -y
+apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+systemctl enable --now docker
+usermod -aG docker ubuntu
+
+curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+apt-get install -y nodejs
+# Official CLI is from NVIDIA/NemoClaw; the npmjs package "nemoclaw" is unrelated/stub.
+npm install -g "github:NVIDIA/NemoClaw"
+
+NEMOCLAW_BIN="$(command -v nemoclaw)"
+test -x "$NEMOCLAW_BIN"
+
+install -d -m 0755 /etc/nemoclaw
+umask 077
+cat >/etc/nemoclaw/nemoclaw.env <<'ENVEOF'
+${nemoclaw_env_file_body}
+ENVEOF
+chmod 600 /etc/nemoclaw/nemoclaw.env
+chown root:root /etc/nemoclaw/nemoclaw.env
+
+cat >/etc/systemd/system/nemoclaw-aux.service <<UNIT
+[Unit]
+Description=NemoClaw auxiliary (Telegram bridge)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu
+Environment=HOME=/home/ubuntu
+Environment=NEMOCLAW_SANDBOX=$${SANDBOX_NAME}
+Environment=SANDBOX_NAME=$${SANDBOX_NAME}
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EnvironmentFile=-/etc/nemoclaw/nemoclaw.env
+ExecStartPre=/bin/sh -c 'until docker info >/dev/null 2>&1; do sleep 2; done'
+ExecStart=$${NEMOCLAW_BIN} start
+ExecStop=$${NEMOCLAW_BIN} stop
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable nemoclaw-aux.service
+systemctl start nemoclaw-aux.service || true
+
+echo "nemoclaw-aws-ec2 bootstrap done" | tee /var/log/nemoclaw-bootstrap.log

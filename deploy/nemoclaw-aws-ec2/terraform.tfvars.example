@@ -1,0 +1,13 @@
+aws_region           = "us-east-1"
+aws_profile          = "" # e.g. "my-sso-profile" if you use named profiles
+instance_type        = "t3.xlarge"
+key_name             = "" # or "my-keypair"
+allowed_ssh_cidr     = "203.0.113.10/32" # your public IP/32 — avoid 0.0.0.0/0
+enable_ssm           = true
+nemoclaw_sandbox_name = "my-assistant"
+volume_size_gb       = 80
+
+# Optional: if empty, create /etc/nemoclaw/nemoclaw.env on the instance yourself.
+# NEVER commit real values — use this file only locally as terraform.tfvars (gitignored).
+telegram_bot_token = ""
+nvidia_api_key       = ""
