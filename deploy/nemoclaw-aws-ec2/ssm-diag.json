@@ -1,0 +1,10 @@
+{
+  "InstanceIds": ["i-085c26a0d1c7a8eb3"],
+  "DocumentName": "AWS-RunShellScript",
+  "TimeoutSeconds": 30,
+  "Parameters": {
+    "commands": [
+      "sudo -u ubuntu -i openshell sandbox list 2>&1"
+    ]
+  }
+}

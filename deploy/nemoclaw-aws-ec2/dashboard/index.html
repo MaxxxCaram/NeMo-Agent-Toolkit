@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NemoClaw Dashboard</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0a0a0f;--card:#12131a;--border:#1e2030;--green:#22c55e;--red:#ef4444;--yellow:#eab308;--blue:#3b82f6;--purple:#a855f7;--text:#e2e8f0;--muted:#64748b;--accent:#76b900}
+body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+.top-bar{background:linear-gradient(135deg,#1a1b2e,#0f1018);border-bottom:1px solid var(--border);padding:16px 24px;display:flex;align-items:center;justify-content:space-between}
+.logo{display:flex;align-items:center;gap:12px}
+.logo svg{width:32px;height:32px}
+.logo h1{font-size:20px;font-weight:700;background:linear-gradient(135deg,var(--accent),#4ade80);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.status-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px}
+.status-dot.on{background:var(--green);box-shadow:0 0 8px var(--green)}
+.status-dot.off{background:var(--red);box-shadow:0 0 8px var(--red)}
+.last-update{color:var(--muted);font-size:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;padding:24px;max-width:1400px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;transition:border-color .2s}
+.card:hover{border-color:#2a2d45}
+.card h2{font-size:14px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.card h2 svg{width:16px;height:16px;stroke:var(--accent)}
+.metric{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)}
+.metric:last-child{border-bottom:none}
+.metric-label{color:var(--muted);font-size:13px}
+.metric-value{font-size:14px;font-weight:600;font-family:'JetBrains Mono',monospace}
+.tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
+.tag.green{background:rgba(34,197,94,.15);color:var(--green)}
+.tag.red{background:rgba(239,68,68,.15);color:var(--red)}
+.tag.blue{background:rgba(59,130,246,.15);color:var(--blue)}
+.tag.purple{background:rgba(168,85,247,.15);color:var(--purple)}
+.tag.yellow{background:rgba(234,179,8,.15);color:var(--yellow)}
+.full-width{grid-column:1/-1}
+.chat-list{max-height:300px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+.chat-item{padding:12px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .2s}
+.chat-item:hover{background:rgba(118,185,0,.05)}
+.chat-item .chat-header{display:flex;justify-content:space-between;margin-bottom:4px}
+.chat-item .chat-id{font-family:monospace;font-size:13px;color:var(--accent)}
+.chat-item .chat-time{font-size:11px;color:var(--muted)}
+.chat-item .chat-preview{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-item .chat-count{font-size:11px;color:var(--blue)}
+.log-box{max-height:250px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.6;background:#0d0e14;border-radius:8px;padding:12px}
+.log-line{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.log-line .user{color:var(--blue)}
+.log-line .agent{color:var(--green)}
+.container-row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)}
+.container-row:last-child{border-bottom:none}
+.container-name{font-family:monospace;font-size:13px;flex:1}
+.progress-bar{height:6px;background:var(--border);border-radius:3px;overflow:hidden;flex:1}
+.progress-fill{height:100%;border-radius:3px;transition:width .3s}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;justify-content:center;align-items:center}
+.modal-overlay.active{display:flex}
+.modal{background:var(--card);border:1px solid var(--border);border-radius:16px;width:90%;max-width:700px;max-height:80vh;overflow:hidden;display:flex;flex-direction:column}
+.modal-header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.modal-header h3{font-size:16px}
+.modal-close{background:none;border:none;color:var(--muted);cursor:pointer;font-size:20px;padding:4px 8px}
+.modal-close:hover{color:var(--text)}
+.modal-body{padding:20px;overflow-y:auto;flex:1}
+.msg{margin-bottom:12px;padding:10px 14px;border-radius:10px;max-width:85%;font-size:13px;line-height:1.5}
+.msg.user{background:rgba(59,130,246,.15);margin-left:auto;border-bottom-right-radius:2px}
+.msg.assistant{background:rgba(34,197,94,.1);margin-right:auto;border-bottom-left-radius:2px}
+.msg .msg-meta{font-size:10px;color:var(--muted);margin-top:4px}
+.empty{text-align:center;color:var(--muted);padding:40px;font-size:14px}
+@media(max-width:768px){.grid{padding:12px;gap:12px}.card{padding:14px}}
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+  <div class="logo">
+    <svg viewBox="0 0 32 32" fill="none"><rect width="32" height="32" rx="8" fill="#76b900"/><path d="M8 16l4-4 4 4-4 4zm8-8l4-4 4 4-4 4zm0 16l4-4 4 4-4 4zm8-8l-4-4-4 4 4 4z" fill="#fff" opacity=".9"/></svg>
+    <h1>NemoClaw Dashboard</h1>
+  </div>
+  <div>
+    <span class="status-dot" id="live-dot"></span>
+    <span class="last-update" id="last-update">Loading...</span>
+  </div>
+</div>
+
+<div class="grid">
+  <!-- System -->
+  <div class="card">
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg> System</h2>
+    <div id="system-metrics"></div>
+  </div>
+
+  <!-- Sandbox -->
+  <div class="card">
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/></svg> Sandbox</h2>
+    <div id="sandbox-metrics"></div>
+  </div>
+
+  <!-- Telegram -->
+  <div class="card">
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg> Telegram Bridge</h2>
+    <div id="telegram-metrics"></div>
+  </div>
+
+  <!-- Memory -->
+  <div class="card">
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 0110 10 10 10 0 01-10 10A10 10 0 012 12 10 10 0 0112 2z"/><path d="M12 6v6l4 2"/></svg> Memory</h2>
+    <div id="memory-metrics"></div>
+  </div>
+
+  <!-- Docker Containers -->
+  <div class="card">
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="9" height="9" rx="1"/><rect x="13" y="2" width="9" height="9" rx="1"/><rect x="2" y="13" width="9" height="9" rx="1"/><rect x="13" y="13" width="9" height="9" rx="1"/></svg> Docker Containers</h2>
+    <div id="containers"></div>
+  </div>
+
+  <!-- Recent Messages -->
+  <div class="card">
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg> Conversations</h2>
+    <div class="chat-list" id="chat-list"></div>
+  </div>
+
+  <!-- Bridge Logs -->
+  <div class="card full-width">
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg> Bridge Logs</h2>
+    <div class="log-box" id="bridge-logs"></div>
+  </div>
+</div>
+
+<!-- Conversation Modal -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modal-title">Conversation</h3>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+const API = window.location.origin;
+let refreshTimer;
+
+async function fetchStatus() {
+  try {
+    const r = await fetch(`${API}/api/status`);
+    const d = await r.json();
+    render(d);
+    document.getElementById("live-dot").className = "status-dot on";
+    document.getElementById("last-update").textContent = `Updated ${new Date().toLocaleTimeString()}`;
+  } catch(e) {
+    document.getElementById("live-dot").className = "status-dot off";
+    document.getElementById("last-update").textContent = "Connection lost";
+  }
+}
+
+function metric(label, value, tag) {
+  const tagHtml = tag ? `<span class="tag ${tag.cls}">${tag.text}</span>` : "";
+  return `<div class="metric"><span class="metric-label">${label}</span><span class="metric-value">${value || "—"} ${tagHtml}</span></div>`;
+}
+
+function render(d) {
+  const s = d.system || {};
+  document.getElementById("system-metrics").innerHTML =
+    metric("Uptime", s.uptime) +
+    metric("Disk", s.disk ? `${s.disk.used} / ${s.disk.total} (${s.disk.pct})` : "—") +
+    metric("Memory", s.mem ? `${s.mem.used} / ${s.mem.total}` : "—") +
+    metric("Docker", s.docker ? s.docker.replace("Docker version ", "").split(",")[0] : "—") +
+    metric("Node.js", s.node);
+
+  const sb = d.sandbox || {};
+  const sandboxes = sb.sandboxes?.sandboxes || {};
+  const names = Object.keys(sandboxes);
+  const firstSb = names.length > 0 ? sandboxes[names[0]] : null;
+  document.getElementById("sandbox-metrics").innerHTML =
+    metric("Name", firstSb?.name || "none", firstSb ? {cls:"green",text:"active"} : {cls:"red",text:"none"}) +
+    metric("Model", sb.creds?.model || firstSb?.model || "unknown") +
+    metric("Provider", sb.creds?.provider || firstSb?.provider || "unknown") +
+    metric("GPU", firstSb?.gpuEnabled ? "Yes" : "CPU only") +
+    metric("Policies", firstSb?.policies?.map(p=>`<span class="tag blue">${p}</span>`).join(" ") || "—") +
+    metric("API Key", sb.creds?.hasApiKey ? "configured" : "missing", sb.creds?.hasApiKey ? {cls:"green",text:"✓"} : {cls:"red",text:"✗"});
+
+  const tg = d.telegram || {};
+  document.getElementById("telegram-metrics").innerHTML =
+    metric("Status", tg.running ? "Running" : "Stopped", tg.running ? {cls:"green",text:"online"} : {cls:"red",text:"offline"}) +
+    metric("PID", tg.pid || "—") +
+    metric("Bot Token", sb.creds?.hasTgToken ? "configured" : "missing", sb.creds?.hasTgToken ? {cls:"green",text:"✓"} : {cls:"red",text:"✗"});
+
+  const logs = tg.lastLogs || [];
+  document.getElementById("bridge-logs").innerHTML = logs.length > 0
+    ? logs.map(l => {
+        const hl = l.replace(/\] (.*?):/, '] <span class="user">$1</span>:').replace(/\] agent:/, '] <span class="agent">agent</span>:');
+        return `<div class="log-line">${hl}</div>`;
+      }).join("")
+    : '<div class="empty">No logs yet</div>';
+
+  const containers = sb.containers || [];
+  document.getElementById("containers").innerHTML = containers.length > 0
+    ? containers.map(c => {
+        const healthy = c.status.includes("healthy") || c.status.includes("Up");
+        return `<div class="container-row"><span class="status-dot ${healthy?"on":"off"}"></span><span class="container-name">${c.name}</span><span class="tag ${healthy?"green":"yellow"}">${c.status.slice(0,30)}</span></div>`;
+      }).join("")
+    : '<div class="empty">No containers</div>';
+
+  const mem = d.memory || {};
+  document.getElementById("memory-metrics").innerHTML =
+    metric("Active chats", mem.chats || 0) +
+    metric("Total messages", mem.totalMessages || 0) +
+    metric("Storage", "SQLite (local)", {cls:"purple",text:"lite"});
+
+  const convos = mem.conversations || [];
+  document.getElementById("chat-list").innerHTML = convos.length > 0
+    ? convos.map(c => `
+        <div class="chat-item" onclick="openConversation('${c.chatId}')">
+          <div class="chat-header">
+            <span class="chat-id">Chat ${c.chatId}</span>
+            <span class="chat-time">${c.lastActivity ? new Date(c.lastActivity).toLocaleString() : "—"}</span>
+          </div>
+          <div class="chat-preview">${c.preview || "Empty"}</div>
+          <span class="chat-count">${c.messageCount} messages</span>
+        </div>`).join("")
+    : '<div class="empty">No conversations yet. Send a message to your Telegram bot!</div>';
+}
+
+async function openConversation(chatId) {
+  document.getElementById("modal-title").textContent = `Chat ${chatId}`;
+  document.getElementById("modal").classList.add("active");
+  const r = await fetch(`${API}/api/conversation/${chatId}`);
+  const msgs = await r.json();
+  document.getElementById("modal-body").innerHTML = msgs.length > 0
+    ? msgs.map(m => `
+        <div class="msg ${m.role}">
+          ${m.content}
+          <div class="msg-meta">${m.role} · ${new Date(m.ts).toLocaleString()}</div>
+        </div>`).join("")
+    : '<div class="empty">No messages</div>';
+}
+
+function closeModal() { document.getElementById("modal").classList.remove("active"); }
+document.getElementById("modal").addEventListener("click", e => { if(e.target === e.currentTarget) closeModal(); });
+document.addEventListener("keydown", e => { if(e.key === "Escape") closeModal(); });
+
+fetchStatus();
+refreshTimer = setInterval(fetchStatus, 10000);
+</script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+{
+    "CommandId": "da3f0eb7-a5e9-4693-a1cc-f830c3b97667",
+    "InstanceId": "i-085c26a0d1c7a8eb3",
+    "Comment": "",
+    "DocumentName": "AWS-RunShellScript",
+    "DocumentVersion": "$DEFAULT",
+    "PluginName": "aws:runShellScript",
+    "ResponseCode": 0,
+    "ExecutionStartDateTime": "2026-03-28T13:57:34.719Z",
+    "ExecutionElapsedTime": "PT0.017S",
+    "ExecutionEndDateTime": "2026-03-28T13:57:34.719Z",
+    "Status": "Success",
+    "StatusDetails": "Success",
+
+aws: [ERROR]: 'charmap' codec can't encode character '\u25cf' in position 782: character maps to <undefined>
+    "StandardOutputContent": 
