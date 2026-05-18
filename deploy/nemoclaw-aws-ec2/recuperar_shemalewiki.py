@@ -6,6 +6,7 @@
 =============================================================
 """
 
+import html as html_mod
 import json
 import logging
 import os
@@ -273,6 +274,196 @@ def download_page(original_url, timestamp, retries=5):
     return None
 
 
+def download_page_latest(original_url, retries=5):
+    """
+    Use /web/2/... so Internet Archive redirects to the latest snapshot
+    for this exact URL. Needed when paginated ?p=N URLs are not in CDX
+    under the same timestamp as the index page.
+    """
+    wayback_url = "%s/2/%s" % (WAYBACK_BASE, original_url)
+
+    for attempt in range(retries):
+        backoff = min(DELAY_SECONDS * (2 ** attempt), 120)
+        try:
+            resp = SESSION.get(
+                wayback_url, timeout=45, allow_redirects=True
+            )
+            if resp.status_code == 200 and resp.text:
+                return resp.text
+            if resp.status_code == 404:
+                return None
+            if resp.status_code in (429, 503):
+                log.warning(
+                    "Rate limited (%d) on latest, esperando %ds...",
+                    resp.status_code, backoff * 2,
+                )
+                time.sleep(backoff * 2)
+                continue
+            log.warning("Status %d para latest %s", resp.status_code, wayback_url)
+            time.sleep(backoff)
+        except requests.RequestException as exc:
+            log.warning(
+                "Intento latest %d/%d fallido: %s",
+                attempt + 1, retries, exc,
+            )
+            time.sleep(backoff)
+
+    return None
+
+
+def download_review_listing_html(original_url):
+    """
+    Fetch id=998 review listing HTML: CDX timestamp, known-good snapshots,
+    then /web/2/ latest redirect. Returns (html, label) or (None, None).
+
+    Paginated URLs (?p=N) are often missing from CDX; try /web/2/ first so
+    Wayback can pick a snapshot that actually has that exact URL.
+    """
+    has_p = bool(re.search(r"[&?]p=\d+", original_url))
+    if has_p:
+        html = download_page_latest(original_url, retries=8)
+        if html and len(html) > 500 and "reviewid=" in html:
+            return html, "latest"
+
+    # /web/2/ before CDX (skip if has_p: already tried latest above)
+    if not has_p:
+        html = download_page_latest(original_url, retries=5)
+        if html and len(html) > 500 and "reviewid=" in html:
+            return html, "latest"
+
+    ts = fetch_cdx_timestamp_for_url(original_url)
+    candidates = []
+    if ts:
+        candidates.append(ts)
+    candidates.extend([
+        "20250219215820",
+        "20240620223620",
+        "20240918013543",
+        "20240528232434",
+    ])
+    seen = set()
+    for t in candidates:
+        if not t or t in seen:
+            continue
+        seen.add(t)
+        html = download_page(original_url, t)
+        if html and len(html) > 500 and "reviewid=" in html:
+            return html, t
+
+    html = download_page_latest(original_url, retries=8)
+    if html and "reviewid=" in html:
+        return html, "latest"
+    return None, None
+
+
+def review_listing_original_url(eid, page_num, lan="es"):
+    """
+    Canonical URL for id=998 review listings. Page 0 must NOT use &p=0 —
+    Wayback CDX often only has ?id=998&lan=... or ?id=998&eid=X&lan=... .
+    """
+    if page_num == 0:
+        if eid:
+            return (
+                "https://www.shemalewiki.com/?id=998&eid=%s&lan=%s"
+                % (eid, lan)
+            )
+        return "https://www.shemalewiki.com/?id=998&lan=%s" % lan
+    if eid:
+        return (
+            "https://www.shemalewiki.com/?id=998&eid=%s&p=%d&lan=%s"
+            % (eid, page_num, lan)
+        )
+    return "https://www.shemalewiki.com/?id=998&p=%d&lan=%s" % (page_num, lan)
+
+
+def review_detail_original_url(review_id, lan="en"):
+    """Canonical URL for a single review story (?id=998&reviewid=...)."""
+    return (
+        "https://www.shemalewiki.com/?id=998&reviewid=%s&lan=%s"
+        % (review_id, lan)
+    )
+
+
+def _html_fragment_to_plain(fragment):
+    """Turn a small HTML fragment into plain text (review body)."""
+    if not fragment:
+        return ""
+    s = re.sub(r"<br\s*/?>", "\n", fragment, flags=re.IGNORECASE)
+    s = re.sub(r"<[^>]+>", "", s)
+    return html_mod.unescape(s).strip()
+
+
+def extract_review_detail_body(html):
+    """
+    Parse full review story from archived review detail page.
+    The narrative lives in <span id="Text_N"> (not TextTop_*).
+    Returns None if not found or too short.
+    """
+    if not html:
+        return None
+    body = html
+    if "<!-- BEGIN WAYBACK TOOLBAR" in body:
+        body = re.split(r"<!-- END WAYBACK TOOLBAR", body, maxsplit=1)[-1]
+
+    best = None
+    best_len = 0
+    for m in re.finditer(
+        r'<span[^>]*\bid="Text_(\d+)"[^>]*>(.*?)</span>',
+        body,
+        re.DOTALL | re.IGNORECASE,
+    ):
+        inner = m.group(2)
+        plain = _html_fragment_to_plain(inner)
+        if len(plain) > best_len:
+            best_len = len(plain)
+            best = plain
+
+    if best_len < 40:
+        return None
+    return best
+
+
+def download_review_detail_html(review_id, lan="en"):
+    """
+    Fetch one review detail page from Wayback. Many review URLs were never
+    archived (404) — returns (None, None) often.
+
+    Returns:
+        (html_string, label) or (None, None)
+    """
+    original_url = review_detail_original_url(review_id, lan)
+
+    html = download_page_latest(original_url, retries=8)
+    if html and len(html) > 1200 and extract_review_detail_body(html):
+        return html, "latest"
+
+    ts = fetch_cdx_timestamp_for_url(original_url)
+    candidates = []
+    if ts:
+        candidates.append(ts)
+    candidates.extend([
+        "20250219215820",
+        "20250216020046",
+        "20230408154102",
+        "20240620223620",
+        "20240918013543",
+        "20240528232434",
+    ])
+    seen = set()
+    for t in candidates:
+        if not t or t in seen:
+            continue
+        seen.add(t)
+        html = download_page(original_url, t)
+        if html and len(html) > 1200 and extract_review_detail_body(html):
+            return html, t
+
+    html = download_page_latest(original_url, retries=10)
+    if html and extract_review_detail_body(html):
+        return html, "latest_retry"
+    return None, None
+
+
 # ═══════════════════════════════════════════════════════════════
 #  PASO 4: EXTRAER DATOS ESTRUCTURADOS DEL HTML
 # ═══════════════════════════════════════════════════════════════
@@ -420,10 +611,74 @@ def extract_profile_data(html, profile_id, original_url):
                 images.append(src)
     data["images"] = list(set(images))[:30]
 
-    # Full client reviews are in id=998 listings; see reviews.json
-    data["reviews"] = []
+    # Client reviews shown in sidebar #ReviewSection (also listed on id=998)
+    data["reviews"] = extract_reviews_from_profile_html(
+        html, profile_id, profile_name=data.get("name"),
+    )
 
     return data
+
+
+def extract_reviews_from_profile_html(html, profile_id, profile_name=None):
+    """
+    Parse reviews embedded in profile pages (div#ReviewSection): title, stars,
+    author link to ?id=998&reviewid=...
+    """
+    reviews = []
+    if not html:
+        return reviews
+
+    body = html
+    if "<!-- BEGIN WAYBACK TOOLBAR" in body:
+        body = re.split(r"<!-- END WAYBACK TOOLBAR", body, maxsplit=1)[-1]
+
+    start = body.find('<div id="ReviewSection">')
+    if start == -1:
+        return reviews
+    end = body.find("<!--BANNER_", start)
+    if end == -1:
+        block = body[start:]
+    else:
+        block = body[start:end]
+
+    # One or more: h3 title, linked stars, ReviewAuthor
+    entry_re = re.compile(
+        r'<h3><a\s+href="[^"]*reviewid=(\d+)[^"]*">([^<]*)</a></h3>\s*'
+        r'<a[^>]*>\s*<div style="white-space: nowrap;">(.*?)</div>\s*</a>'
+        r'(?:<br\s*/?>)?\s*<span class="ReviewAuthor">([^<]*)</span>',
+        re.DOTALL | re.IGNORECASE,
+    )
+    for match in entry_re.finditer(block):
+        rid, title, stars_html, author = match.groups()
+        rating = stars_html.count("star-icon full")
+        reviews.append({
+            "review_id": rid,
+            "title": title.strip(),
+            "profile_id": str(profile_id),
+            "profile_name": (profile_name or "").strip(),
+            "author": author.strip(),
+            "rating": rating,
+            "source": "profile_embed",
+        })
+
+    if not reviews:
+        # Fallback: any reviewid in ReviewSection with h3 title
+        for m in re.finditer(
+            r'<h3><a\s+href="[^"]*reviewid=(\d+)[^"]*">([^<]*)</a></h3>',
+            block,
+            re.IGNORECASE,
+        ):
+            reviews.append({
+                "review_id": m.group(1),
+                "title": m.group(2).strip(),
+                "profile_id": str(profile_id),
+                "profile_name": (profile_name or "").strip(),
+                "author": "",
+                "rating": 0,
+                "source": "profile_embed_fallback",
+            })
+
+    return reviews
 
 
 def extract_reviews_from_html(html):
@@ -630,16 +885,14 @@ def run_recovery(url_map, max_pages=MAX_PAGES):
     log.info("=" * 50)
 
     all_reviews = []
-    max_review_pages = 200
+    # Most ?id=998&p=N URLs are not in Wayback CDX; page 0 per tab is reliable.
+    max_review_pages = 1
     ethnicities = ["", "1", "2", "3", "4", "5"]
+    review_lan = "es"
 
-    sample_review_url = "https://www.shemalewiki.com/?id=998&lan=en"
-    review_wayback_ts = fetch_cdx_timestamp_for_url(sample_review_url)
-    if not review_wayback_ts:
-        review_wayback_ts = "20240620223620"
     log.info(
-        "Timestamp Wayback para listados de reviews: %s",
-        review_wayback_ts,
+        "Review listings: lan=%s (CDX + fallbacks + /web/2/ latest per URL)",
+        review_lan,
     )
 
     for eid in ethnicities:
@@ -651,26 +904,20 @@ def run_recovery(url_map, max_pages=MAX_PAGES):
             if review_html_path.exists():
                 html = review_html_path.read_text(encoding="utf-8")
             else:
-                if eid:
-                    review_url = (
-                        "https://www.shemalewiki.com/"
-                        "?id=998&eid=%s&p=%d&lan=en" % (eid, page_num)
-                    )
-                else:
-                    review_url = (
-                        "https://www.shemalewiki.com/"
-                        "?id=998&p=%d&lan=en" % page_num
-                    )
-                log.info(
-                    "  Reviews eid=%s page %d -> descargando...",
-                    eid_label, page_num,
+                review_url = review_listing_original_url(
+                    eid, page_num, lan=review_lan
                 )
-                html = download_page(review_url, review_wayback_ts)
+                log.info(
+                    "  Reviews eid=%s page %d -> %s",
+                    eid_label, page_num, review_url,
+                )
+                html, ts_label = download_review_listing_html(review_url)
                 if html:
                     review_html_path.write_text(html, encoding="utf-8")
+                    log.info("    -> OK (%s)", ts_label)
                 else:
                     log.info(
-                        "  Sin respuesta para eid=%s page %d",
+                        "  Sin HTML util para eid=%s page %d",
                         eid_label, page_num,
                     )
                     break

@@ -1,0 +1,9 @@
+IPL-M22 (agente API + web Vercel) vive ahora en:
+
+  G:\IPL-M22\ipl-m22-assistant
+  G:\IPL-M22\ipl-m22-web
+
+Abre G:\IPL-M22 en una ventana nueva de Cursor (Archivo → Abrir carpeta).
+
+Las carpetas ipl-m22-assistant / ipl-m22-web que queden aqui son copia antigua:
+cierra procesos que las usen y borralas para no duplicar trabajo.

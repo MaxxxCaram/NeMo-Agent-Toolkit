@@ -88,9 +88,13 @@ def build_site(output_dir=None):
     reviews_by_profile = load_json(JSON_DIR / "reviews_by_profile.json", {})
     listings = load_json(JSON_DIR / "listings.json", {})
     summary = load_json(JSON_DIR / "summary.json", {})
+    review_bodies = load_json(JSON_DIR / "review_bodies.json", {})
 
     if isinstance(reviews_all, dict):
         reviews_all = []
+    if not isinstance(review_bodies, dict):
+        review_bodies = {}
+    review_bodies = {str(k): v for k, v in review_bodies.items() if isinstance(v, str)}
 
     # Merge reviews into by-profile if only flat list exists
     if reviews_all and not reviews_by_profile:
@@ -99,6 +103,12 @@ def build_site(output_dir=None):
             if not pid:
                 continue
             reviews_by_profile.setdefault(pid, []).append(rev)
+
+    # Inline body on review rows wins over review_bodies.json
+    for rev in reviews_all:
+        rid = rev.get("review_id")
+        if rid and rev.get("body"):
+            review_bodies[str(rid)] = rev["body"]
 
     css = """/* ShemaleWiki recovery — static relaunch */
 :root {
@@ -309,6 +319,18 @@ table.directory th, table.directory td {
 }
 table.directory th { color: var(--muted); font-weight: 600; }
 .reviews-page .review-item { max-width: 900px; margin-left: auto; margin-right: auto; }
+.review-item .title a { color: var(--accent); }
+.review-detail-page .review-story-body {
+  margin-top: 1.25rem;
+  padding: 1rem 1.25rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
 .hidden { display: none !important; }
 """
 
@@ -504,7 +526,16 @@ table.directory th { color: var(--muted); font-weight: 600; }
             for r in revs[:50]:
                 if r.get("source") == "review_link_only":
                     continue
-                tit = html.escape(r.get("title") or "Review")
+                tit_esc = html.escape(r.get("title") or "Review")
+                rid = r.get("review_id")
+                body_txt = review_bodies.get(str(rid), "") if rid else ""
+                if body_txt and rid:
+                    tit_html = (
+                        '<a href="review_%s.html">%s</a>'
+                        % (html.escape(str(rid)), tit_esc)
+                    )
+                else:
+                    tit_html = tit_esc
                 author = html.escape(r.get("author") or "Anonymous")
                 rating = int(r.get("rating") or 0)
                 stars = "★" * rating + "☆" * (5 - rating) if rating else ""
@@ -513,7 +544,7 @@ table.directory th { color: var(--muted); font-weight: 600; }
                     '<div class="title">%s</div>'
                     '<div class="meta"><span class="stars">%s</span> — %s</div>'
                     "</div>"
-                    % (tit, stars, author)
+                    % (tit_html, stars, author)
                 )
             rev_html += "</section>"
 
@@ -565,6 +596,74 @@ table.directory th { color: var(--muted); font-weight: 600; }
 
         (output_dir / ("profile_%s.html" % pid)).write_text(page, encoding="utf-8")
 
+    # --- review_<id>.html (full story text when json/review_bodies.json has it) ---
+    review_meta_by_id = {}
+    for r in reviews_all:
+        rid = str(r.get("review_id") or "")
+        if rid and rid not in review_meta_by_id:
+            review_meta_by_id[rid] = r
+    if not reviews_all:
+        for plist in reviews_by_profile.values():
+            for r in plist:
+                rid = str(r.get("review_id") or "")
+                if rid and rid not in review_meta_by_id:
+                    review_meta_by_id[rid] = r
+
+    for rid, text in review_bodies.items():
+        if not (text or "").strip():
+            continue
+        meta = review_meta_by_id.get(str(rid), {})
+        title_esc = html.escape(meta.get("title") or ("Review %s" % rid))
+        author_esc = html.escape(meta.get("author") or "")
+        rating = int(meta.get("rating") or 0)
+        stars = "★" * rating + "☆" * (5 - rating) if rating else ""
+        pid = meta.get("profile_id")
+        pname_esc = html.escape(meta.get("profile_name") or "")
+        if pid:
+            prof_link = (
+                '<a href="profile_%s.html">Profile %s · %s</a>'
+                % (html.escape(str(pid)), html.escape(str(pid)), pname_esc)
+            )
+        else:
+            prof_link = "—"
+        story_esc = html.escape(text)
+        rpage = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>%s — Archive</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <header class="topnav">
+    <h1><a href="index.html">ShemaleWiki Archive</a></h1>
+    <nav>
+      <a href="index.html">Directory</a>
+      <a href="reviews.html">Reviews</a>
+      <a href="about.html">About</a>
+    </nav>
+  </header>
+  <article class="profile-page review-detail-page">
+    <p style="margin-bottom:0.5rem;"><a href="reviews.html">&larr; Back to reviews</a></p>
+    <h1 style="margin-bottom:0.35rem;">%s</h1>
+    <p class="loc" style="margin-bottom:0.25rem;">%s</p>
+    <p style="color:var(--muted);font-size:0.9rem;"><span class="stars">%s</span> · %s · Review ID %s</p>
+    <div class="review-story-body">%s</div>
+    <p class="footer-note">Recovered from public web archives when available. Many detail pages were never archived.</p>
+  </article>
+</body>
+</html>""" % (
+            title_esc,
+            title_esc,
+            prof_link,
+            stars,
+            author_esc,
+            html.escape(str(rid)),
+            story_esc,
+        )
+        (output_dir / ("review_%s.html" % rid)).write_text(rpage, encoding="utf-8")
+
     # --- reviews.html ---
     review_rows = []
     if reviews_all:
@@ -590,13 +689,21 @@ table.directory th { color: var(--muted); font-weight: 600; }
             if pid
             else "—"
         )
+        body_txt = review_bodies.get(str(rid), "") if rid else ""
+        if body_txt:
+            tit_html = (
+                '<a href="review_%s.html">%s</a>'
+                % (html.escape(str(rid)), tit)
+            )
+        else:
+            tit_html = tit
         review_rows.append(
             """
     <div class="review-item">
       <div class="title">%s</div>
       <div class="meta">For %s · %s <span class="stars">%s</span> · %s</div>
     </div>"""
-            % (tit, link, pname, stars, author)
+            % (tit_html, link, pname, stars, author)
         )
 
     reviews_body = (

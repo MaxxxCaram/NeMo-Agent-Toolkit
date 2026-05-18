@@ -1,0 +1,57 @@
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  background: #0f1419;
+  color: #e7e9ea;
+  line-height: 1.5;
+  padding: 1.5rem;
+  max-width: 52rem;
+  margin-inline: auto;
+}
+h1 {
+  font-size: 1.35rem;
+  font-weight: 600;
+}
+label {
+  display: block;
+  margin-top: 1rem;
+  font-size: 0.875rem;
+  color: #8b98a5;
+}
+input[type="file"],
+select,
+button {
+  margin-top: 0.35rem;
+}
+button {
+  background: #1d9bf0;
+  color: #fff;
+  border: none;
+  padding: 0.6rem 1.2rem;
+  border-radius: 9999px;
+  font-weight: 600;
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+pre {
+  background: #16181c;
+  padding: 1rem;
+  border-radius: 8px;
+  overflow: auto;
+  font-size: 0.8rem;
+  border: 1px solid #2f3336;
+}
+.error {
+  color: #f4212e;
+}
+.note {
+  font-size: 0.8rem;
+  color: #8b98a5;
+  margin-top: 0.5rem;
+}

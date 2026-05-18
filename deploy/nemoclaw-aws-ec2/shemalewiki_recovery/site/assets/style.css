@@ -207,4 +207,16 @@ table.directory th, table.directory td {
 }
 table.directory th { color: var(--muted); font-weight: 600; }
 .reviews-page .review-item { max-width: 900px; margin-left: auto; margin-right: auto; }
+.review-item .title a { color: var(--accent); }
+.review-detail-page .review-story-body {
+  margin-top: 1.25rem;
+  padding: 1rem 1.25rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
 .hidden { display: none !important; }
