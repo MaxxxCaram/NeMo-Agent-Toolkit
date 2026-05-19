@@ -24,40 +24,118 @@ function cleanString(str) {
     return decoded.replace(/"/g, '""').trim();
 }
 
-function formatPhone(phoneStr) {
-    if (!phoneStr) return '';
-    let clean = phoneStr.trim();
-    if (clean.startsWith('[') && clean.endsWith(']')) {
-        try {
-            const arr = JSON.parse(clean);
-            if (Array.isArray(arr)) {
-                return arr.map(p => decodeHtmlEntities(p).trim()).filter(Boolean).join(', ');
+// Strip out URLs, domain names, and paths to prevent URL numerical IDs from matching as phone numbers
+function removeUrls(text) {
+    if (!text) return '';
+    // Matches http/https links and typical domain name links with paths
+    const urlRegex = /(https?:\/\/[^\s]+)|([a-zA-Z0-9.-]+\.(?:com|net|org|co|info|biz|me|online|xyz|se|nl|es|de|dk|fr|it|be|ch|at|uk|pl|ru|club|link|vip|agency|ca|us|asia)(?:\/[^\s]*)?)/gi;
+    return text.replace(urlRegex, ' ');
+}
+
+// Deep regex parsing for emails inside the bio description with trail-cleansing
+function extractEmailsFromText(text) {
+    if (!text) return [];
+    const cleanText = decodeHtmlEntities(text);
+    const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}/g;
+    const matches = cleanText.match(emailRegex) || [];
+    
+    return [...new Set(matches.map(e => {
+        let clean = e.trim().toLowerCase();
+        // Remove trailing words joined without spaces (like "Available", "Incall", "Outcall")
+        clean = clean.replace(/(?:available|incall|outcall|whatsapp|twitter|instagram|onlyfans|snapchat|telegram|line|viber|skype|wechat|phone|mail|contact|hot|sexy|thai|versatile|escort).*$/i, '');
+        return clean;
+    }).filter(Boolean))];
+}
+
+// Deep regex parsing for phone numbers after stripping URLs
+function extractPhonesFromText(text) {
+    if (!text) return [];
+    const cleanText = decodeHtmlEntities(text);
+    
+    // First, strip out all URLs to avoid matching domain IDs
+    const textWithoutUrls = removeUrls(cleanText);
+    
+    // Matches international and local phone sequences
+    const phoneRegex = /(?:\+|00)?\d{1,4}[-.\s]?\(?\d{1,3}?\)?[-.\s]?\d{2,4}[-.\s]?\d{2,4}[-.\s]?\d{2,9}/g;
+    const matches = textWithoutUrls.match(phoneRegex) || [];
+    
+    return [...new Set(matches
+        .map(p => p.trim())
+        .filter(p => {
+            const digits = p.replace(/\D/g, '');
+            // Real phone numbers contain between 8 and 15 digits
+            return digits.length >= 8 && digits.length <= 15;
+        })
+    )];
+}
+
+function formatPhone(phoneStr, bioStr) {
+    let phones = [];
+    
+    // 1. Add standard database phone field if present
+    if (phoneStr) {
+        let clean = phoneStr.trim();
+        if (clean.startsWith('[') && clean.endsWith(']')) {
+            try {
+                const arr = JSON.parse(clean);
+                if (Array.isArray(arr)) {
+                    arr.forEach(p => phones.push(decodeHtmlEntities(p).trim()));
+                }
+            } catch (e) {
+                clean.replace(/[\[\]"']/g, '').split(',').forEach(p => phones.push(decodeHtmlEntities(p).trim()));
             }
-        } catch (e) {
-            // fallback if it's not valid JSON
-            return clean.replace(/[\[\]"']/g, '').split(',').map(p => decodeHtmlEntities(p).trim()).filter(Boolean).join(', ');
+        } else {
+            phones.push(decodeHtmlEntities(clean));
         }
     }
-    return decodeHtmlEntities(clean);
+    
+    // 2. Extract phones from bio and merge
+    if (bioStr) {
+        const bioPhones = extractPhonesFromText(bioStr);
+        bioPhones.forEach(bp => phones.push(bp));
+    }
+    
+    const uniquePhones = [...new Set(phones.filter(Boolean))];
+    return uniquePhones.join(', ');
+}
+
+function formatEmail(emailStr, bioStr) {
+    let emails = [];
+    
+    // 1. Add standard database email
+    if (emailStr && emailStr.trim() !== '') {
+        emails.push(emailStr.trim().toLowerCase());
+    }
+    
+    // 2. Extract emails from bio and merge
+    if (bioStr) {
+        const bioEmails = extractEmailsFromText(bioStr);
+        bioEmails.forEach(be => emails.push(be));
+    }
+    
+    const uniqueEmails = [...new Set(emails.filter(Boolean))];
+    
+    const filteredEmails = uniqueEmails.filter(e => e !== 'info@shemalewiki.com');
+    if (filteredEmails.length > 0) {
+        return filteredEmails.join(', ');
+    }
+    
+    return uniqueEmails.join(', ');
 }
 
 function parseCountryAndCity(location) {
     if (!location) return { country: 'Unknown', city: 'Unknown' };
     
-    // Check if location format is like "DRAFT: Continent | Country | City" or "Continent | Country | City"
     const cleanLoc = location.replace(/^DRAFT:\s*/i, '');
     if (cleanLoc.includes('|')) {
         const parts = cleanLoc.split('|').map(p => p.trim());
         if (parts.length >= 3) {
-            // "Continent | Country | City" -> parts[1] is country, parts[2] is city
             return { country: parts[1], city: parts[2] };
         } else if (parts.length === 2) {
-            // "Country | City" -> parts[0] is country, parts[1] is city
             return { country: parts[0], city: parts[1] };
         }
     }
     
-    // Fallback if it's a simple string like "Germany" or "Spain"
     return { country: cleanLoc, city: 'Unknown' };
 }
 
@@ -75,7 +153,7 @@ async function extractLeads() {
 
         const { data, error } = await supabase
             .from('profiles')
-            .select('name, email, phone, location')
+            .select('name, email, phone, location, bio')
             .range(from, to);
 
         if (error) {
@@ -99,26 +177,26 @@ async function extractLeads() {
     console.log(`Successfully fetched ${allProfiles.length} profiles in total.`);
 
     // Define CSV Headers
-    // Format: Nombre, Pais, Ciudad, Email, Telefono
-    let csvContent = '\uFEFF'; // UTF-8 BOM for perfect Excel encoding on Spanish operating systems
+    let csvContent = '\uFEFF'; // UTF-8 BOM
     csvContent += '"Nombre","País","Ciudad","Email","Teléfono"\n';
 
     let count = 0;
     for (const p of allProfiles) {
-        const { name, email, phone, location } = p;
+        const { name, email, phone, location, bio } = p;
         
-        // Skip profiles that don't have ANY contact details
-        const hasEmail = email && email.trim() !== '';
-        const hasPhone = phone && phone.trim() !== '';
+        const formattedEmail = formatEmail(email, bio);
+        const formattedPhone = formatPhone(phone, bio);
+        
+        const hasEmail = formattedEmail && formattedEmail.trim() !== '';
+        const hasPhone = formattedPhone && formattedPhone.trim() !== '';
         
         if (!hasEmail && !hasPhone) {
             continue;
         }
 
         const { country, city } = parseCountryAndCity(location);
-        const formattedPhone = formatPhone(phone);
         
-        csvContent += `"${cleanString(name)}","${cleanString(country)}","${cleanString(city)}","${cleanString(email)}","${cleanString(formattedPhone)}"\n`;
+        csvContent += `"${cleanString(name)}","${cleanString(country)}","${cleanString(city)}","${cleanString(formattedEmail)}","${cleanString(formattedPhone)}"\n`;
         count++;
     }
 
