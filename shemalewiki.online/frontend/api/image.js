@@ -1,9 +1,9 @@
-import axios from 'axios';
-import https from 'https';
+const axios = require('axios');
+const https = require('https');
 
 const FALLBACK_URL = 'https://placehold.co/300x400.png?text=No+Photo';
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   // Enable CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -52,7 +52,7 @@ export default async function handler(req, res) {
     console.error(`Image proxy failed for URL: ${url}. Error: ${err.message}`);
     return serveFallback(res);
   }
-}
+};
 
 async function serveFallback(res) {
   try {

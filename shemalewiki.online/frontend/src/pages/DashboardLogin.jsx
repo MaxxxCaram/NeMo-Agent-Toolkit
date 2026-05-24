@@ -584,6 +584,7 @@ export default function DashboardLogin() {
                         type="text" 
                         id="createCountry"
                         name="createCountry"
+                        autoComplete="country-name"
                         className="search-input" 
                         style={{ width: '100%' }} 
                         placeholder="Ej. España" 
@@ -598,6 +599,7 @@ export default function DashboardLogin() {
                         type="text" 
                         id="createCity"
                         name="createCity"
+                        autoComplete="address-level2"
                         className="search-input" 
                         style={{ width: '100%' }} 
                         placeholder="Ej. Madrid" 
